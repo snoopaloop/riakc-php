@@ -126,10 +126,11 @@ ZEND_GET_MODULE(riakc)
 
 /* {{{ PHP_INI */
 PHP_INI_BEGIN()
-/*STD_PHP_INI_ENTRY("riakc.auto_reconnect", "1", PHP_INI_ALL, OnUpdateLong, auto_reconnect, zend_riakc_globals, mongo_globals)
-STD_PHP_INI_ENTRY("riakc.allow_persistent", "1", PHP_INI_ALL, OnUpdateLong, allow_persistent, zend_riakc_globals, mongo_globals)*/
 STD_PHP_INI_ENTRY("riakc.default_host", "localhost", PHP_INI_ALL, OnUpdateString, default_host, zend_riakc_globals, riakc_globals)
 STD_PHP_INI_ENTRY("riakc.default_port", "27017", PHP_INI_ALL, OnUpdateString, default_port, zend_riakc_globals, riakc_globals)
+STD_PHP_INI_ENTRY("riakc.w", "1", PHP_INI_ALL, OnUpdateLong, w, zend_riakc_globals, riakc_globals)
+STD_PHP_INI_ENTRY("riakc.dw", "1", PHP_INI_ALL, OnUpdateLong, dw, zend_riakc_globals, riakc_globals)
+STD_PHP_INI_ENTRY("riakc.r", "1", PHP_INI_ALL, OnUpdateLong, r, zend_riakc_globals, riakc_globals)
 PHP_INI_END()
 /* }}} */
 
@@ -139,6 +140,7 @@ PHP_METHOD(RiakClient, __construct)
 	int host_len;
 	long port;
 	
+	// FIXME: change to char* and do proper casting
 	std::string hostStr;
 	std::string portStr;
 	stringstream strstream;
@@ -151,9 +153,7 @@ PHP_METHOD(RiakClient, __construct)
 	
 	client = (riakc_client*)zend_object_store_get_object(getThis() TSRMLS_CC);
 	
-	//hostStr = string(reinterpret_cast<const char*>(host));
-	
-	hostStr = string(host);
+	hostStr = string(reinterpret_cast<const char*>(host));
 	
 	if(ZEND_NUM_ARGS() > 1)
 	{
@@ -180,10 +180,12 @@ PHP_METHOD(RiakClient, get)
 	char *key;
 	
 	int bucket_len, key_len;
+  long r_val;
+  
 	riakc_client *client;
   riakc_object *intern;
 	
-	if(FAILURE == zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss", &bucket, &bucket_len, &key, &key_len))
+	if(FAILURE == zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss|l", &bucket, &bucket_len, &key, &key_len, &r_val))
 	{
 		return;
 	}
@@ -196,8 +198,6 @@ PHP_METHOD(RiakClient, get)
 	{
 		RETURN_FALSE;
 	}
-	
-	result->choose_sibling(0)->debug_print();
 	
 	object_init_ex(return_value, riakc_object_ce);
   intern = (riakc_object *)zend_objects_get_address(return_value TSRMLS_CC);
@@ -216,22 +216,27 @@ PHP_METHOD(RiakClient, del)
 	char *bucket;
 	char *key;
 	
-  long dw;
+  long dw_val;
   bool result;
 	
 	int bucket_len, key_len;
 	riakc_client *client;
 	
-	if(FAILURE == zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss|l", &bucket, &bucket_len, &key, &key_len, &dw))
+	if(FAILURE == zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss|l", &bucket, &bucket_len, &key, &key_len, &dw_val))
 	{
 		return;
+	}
+	
+	if(3 > ZEND_NUM_ARGS())
+	{
+    dw_val = RiakcGlobal(dw);
 	}
 	
 	client = (riakc_client*)zend_object_store_get_object(getThis() TSRMLS_CC);
 	std::string bkt = string(reinterpret_cast<const char*>(bucket));
   std::string k = string(reinterpret_cast<const char*>(key));
   
-  result = client->c->del(bkt, k, (int)dw);
+  result = client->c->del(bkt, k, (int)dw_val);
   
   if(true == result) 
   {
@@ -274,7 +279,6 @@ PHP_METHOD(RiakObject, __construct)
 		object->key = estrdup(Z_STRVAL_PP(args[2]));
 		object->key_len = (*args[2])->value.str.len;
 		
-		
     std::string content = "";
     std::string content_type = "";
 		
@@ -294,8 +298,9 @@ PHP_METHOD(RiakObject, __construct)
 		riakc_client *client = (riakc_client*)zend_object_store_get_object((*args[0]) TSRMLS_CC);
     object->client = client->c;
 		
-    std::string bkt = string(reinterpret_cast<const char*>(args[1]));
-    std::string k = string(reinterpret_cast<const char*>(args[2]));
+    std::string bkt = string(reinterpret_cast<const char*>(object->bucket));
+    std::string k = string(reinterpret_cast<const char*>(object->key));
+    
     riak::object_ptr o = riak::make_object(bkt, k, content);
     object->robj = o;
     
@@ -403,11 +408,10 @@ PHP_METHOD(RiakObject, contentType)
   {
     return;
   }
-  cout << ZEND_NUM_ARGS() << endl;
+
   convert_to_string_ex(args[0]);
   contentType = estrdup(Z_STRVAL_PP(args[0]));
 
-  cout << "test2" << endl;
   std::string ct = string(reinterpret_cast<const char*>(contentType));
   object->content_type = &ct;
   
@@ -424,10 +428,10 @@ PHP_METHOD(RiakObject, contentType)
 // Also, store parameters
 PHP_METHOD(RiakObject, store)
 {
-  long w;
-  long dw;
+  long w_val;
+  long dw_val;
   
-  if(FAILURE == zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|ll", &w, &dw))
+  if(FAILURE == zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|ll", &w_val, &dw_val))
   {
     return;
   }
@@ -436,24 +440,20 @@ PHP_METHOD(RiakObject, store)
   
   if(2 > ZEND_NUM_ARGS())
   {
-    dw = 1;
+    dw_val = RiakcGlobal(dw);
   }
   if(1 > ZEND_NUM_ARGS())
   {
-    w = 1;
+    w_val = RiakcGlobal(w);
   }
   
   riak::store_params sp;
-  sp.w((int)w).dw((int)dw).return_body(false);
+  sp.w((int)w_val).dw((int)dw_val).return_body(true);
   
   riak::object_ptr o = object->robj;
-  o->update_content().debug_print();
   
-  
-  // problem is a bad client!
-  riak::result_ptr r = object->client->fetch("testbucket", "testkey", 1);
-  r->choose_sibling(0)->debug_print();
-  //object->client->store(o, sp);
+  riak::result_ptr result = object->client->store(o, sp);
+  object->robj = result->choose_sibling(0);
   
   RETURN_TRUE;
 }
@@ -461,19 +461,19 @@ PHP_METHOD(RiakObject, store)
 // TODO: set dw default
 PHP_METHOD(RiakObject, del)
 {
-  long dw;
+  long dw_val;
   bool result;
   
   riakc_object *object;
   
-  if(FAILURE == zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|l", &dw))
+  if(FAILURE == zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|l", &dw_val))
   {
     return;
   }
   
   if(1 > ZEND_NUM_ARGS())
   {
-    dw = 1L;
+    dw_val = RiakcGlobal(dw);
   }
   
   object = (riakc_object*)zend_object_store_get_object(getThis() TSRMLS_CC);
@@ -481,7 +481,7 @@ PHP_METHOD(RiakObject, del)
 	std::string bkt = string(reinterpret_cast<const char*>(object->bucket));
   std::string k = string(reinterpret_cast<const char*>(object->key));
   
-  result = object->client->del(bkt, k, (int)dw);
+  result = object->client->del(bkt, k, (int)dw_val);
   
   if(true == result)
   {
@@ -505,6 +505,9 @@ static void riakc_init_globals(zend_riakc_globals *riakc_globals TSRMLS_DC)
 {
   riakc_globals->default_host = "127.0.0.1";
   riakc_globals->default_port = "8087";
+  riakc_globals->w = 1;
+  riakc_globals->dw = 1;
+  riakc_globals->r = 1;
 }
 
 PHP_MINIT_FUNCTION(riakc)
@@ -514,7 +517,6 @@ PHP_MINIT_FUNCTION(riakc)
   #if ZEND_MODULE_API_NO < 20060613
     ZEND_INIT_MODULE_GLOBALS(riakc, riakc_init_globals, NULL);
   #endif
-  
   
   REGISTER_INI_ENTRIES();
 	

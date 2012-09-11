@@ -26,48 +26,6 @@
 
 #include <riak_client/cxx/riak_client.hpp>
 
-#if ZEND_MODULE_API_NO >= 20090115
-# define PUSH_PARAM(arg) zend_vm_stack_push(arg TSRMLS_CC)
-# define POP_PARAM() (void)zend_vm_stack_pop(TSRMLS_C)
-# define PUSH_EO_PARAM()
-# define POP_EO_PARAM()
-#else
-# define PUSH_PARAM(arg) zend_ptr_stack_push(&EG(argument_stack), arg)
-# define POP_PARAM() (void)zend_ptr_stack_pop(&EG(argument_stack))
-# define PUSH_EO_PARAM() zend_ptr_stack_push(&EG(argument_stack), NULL)
-# define POP_EO_PARAM() (void)zend_ptr_stack_pop(&EG(argument_stack))
-#endif
-
-#if ZEND_MODULE_API_NO >= 20060613
-// normal, nice method
-#define METHOD_BASE(classname, name) zim_##classname##_##name
-#else
-// gah!  wtf, php 5.1?
-#define METHOD_BASE(classname, name) zif_##classname##_##name
-#endif /* ZEND_MODULE_API_NO >= 20060613 */
-
-#define METHOD_HELPER(classname, name, retval, thisptr, num, param) \
-  PUSH_PARAM(param); PUSH_PARAM((void*)num);				\
-  PUSH_EO_PARAM();							\
-  MONGO_METHOD_BASE(classname, name)(num, retval, NULL, thisptr, 0 TSRMLS_CC); \
-  POP_EO_PARAM();			\
-  POP_PARAM(); POP_PARAM();
-
-#define METHOD2(classname, name, retval, thisptr, param1) \
-  PUSH_PARAM(param1); PUSH_PARAM(param2);		\
-  METHOD_HELPER(classname, name, retval, thisptr, 2, param2);	\
-  POP_PARAM(); POP_PARAM();
-
-#define METHOD3(classname, name, retval, thisptr, param1, param2) \
-  PUSH_PARAM(param1); PUSH_PARAM(param2);		\
-  METHOD_HELPER(classname, name, retval, thisptr, 3, param3);	\
-  POP_PARAM(); POP_PARAM();
-
-#define METHOD4(classname, name, retval, thisptr, param1, param2, param3, param4) \
-  PUSH_PARAM(param1); PUSH_PARAM(param2); PUSH_PARAM(param3);		\
-  METHOD_HELPER(classname, name, retval, thisptr, 4, param4);	\
-  POP_PARAM(); POP_PARAM(); POP_PARAM();
-
 typedef struct _riakc_client {
 	zend_object std;
 	
@@ -120,7 +78,17 @@ typedef struct _riakc_object {
 ZEND_BEGIN_MODULE_GLOBALS(riakc)
 char *default_host;
 char *default_port;
+long w;
+long dw;
+long r;
 ZEND_END_MODULE_GLOBALS(riakc)
+
+#ifdef ZTS
+#include <TSRM.h>
+# define RiakcGlobal(v) TSRMG(riakc_globals_id, zend_riakc_globals *, v)
+#else
+# define RiakcGlobal(v) (riakc_globals.v)
+#endif
 
 static zend_object_value create_new_riakc_client(zend_class_entry *class_type TSRMLS_DC);
 static zend_object_value create_new_riakc_object(zend_class_entry *class_type TSRMLS_DC);
